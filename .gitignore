@@ -1,0 +1,71 @@
+# Build artifacts
+build/
+cmake_build_debug/
+cmake_build_release/
+dist/
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+
+# Executables
+osint_ai
+osint_ai_tests
+*.exe
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CMakeLists.txt.user
+*.cmake
+compile_commands.json
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.cproject
+*.depend
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# Debug symbols
+*.dSYM/
+
+# Dependency downloads/cache
+venv/.cache/
+
+# Local configuration overrides
+.env
+.env.local
+config.local.json

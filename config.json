@@ -1,0 +1,38 @@
+{
+  "_comment": "osint-ai configuration. All values here can be overridden by environment variables.",
+
+  "anthropic_api_key": "",
+  "google_api_key":    "",
+  "google_cx":         "",
+
+  "search": {
+    "max_results":     8,
+    "use_duckduckgo":  true,
+    "use_google":      false,
+    "language":        "en"
+  },
+
+  "scraper": {
+    "pages_to_scrape":    3,
+    "max_text_length":    6000,
+    "timeout_seconds":    20,
+    "strip_boilerplate":  true
+  },
+
+  "ai": {
+    "model":       "claude-sonnet-4-20250514",
+    "max_tokens":  1500,
+    "temperature": 0.3
+  },
+
+  "ui": {
+    "color":               true,
+    "show_search_results": true,
+    "show_sources":        true,
+    "show_timing":         true
+  },
+
+  "logging": {
+    "level": "warn"
+  }
+}
