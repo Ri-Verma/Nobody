@@ -1,135 +1,293 @@
-# Nobody Architecture & Documentation
+# Nobody — Web Intelligence Engine
 
-This document describes the inner workings of the **Nobody** software suite, detailing how the project is structured, the data flow, and what each file specifically handles. 
+**Nobody** is a C++ AI research tool that answers questions by searching the live internet in real-time. It uses no pre-trained datasets for answers — instead it queries search engines (DuckDuckGo, Google), scrapes the top web pages, and synthesises a cited, factual response using a **local AI model running on your own machine via Ollama**. No external API keys required.
 
-## High-Level Architecture
-**Nobody** is built as a pipeline consisting of five main blocks:
-1. **Core Networking** (HTTP & Data Requests)
-2. **Search Engine Handler** (Querying live web endpoints)
-3. **Web Scraper** (Extracting plain text from raw web pages)
-4. **AI Brain** (Prompting and LLM Response Synthesis)
-5. **Intelligence Engine & UI** (Orchestration and User interaction)
-
-The application handles everything chronologically: User Input $\rightarrow$ Query Web Search $\rightarrow$ Scrape Top Results $\rightarrow$ Pass Content to LLM $\rightarrow$ Format Output.
-
----
-
-## File and Component Breakdown
-
-### 1. The Entry Point
-**`src/main.cpp`**
-- Serves as the bootstrapping interface.
-- Reads environment variables (such as `ANTHROPIC_API_KEY`) and optional configurations.
-- Initializes logging (`spdlog`) and parses Command Line Arguments (like `--no-scrape` or `--no-color`).
-- Instantiates all the major C++ objects (`HttpClient`, `SearchEngine`, `WebScraper`, `AIBrain`, `NobodyEngine`, and `CLI`) and explicitly wires their dependencies together using smart pointers.
-- Launches either a single non-interactive query (`-q`) or hands control to the interactive `CLI` REPL.
-
-### 2. Core (Low-Level Utilities)
-**`src/core/HttpClient.h` & `src/core/HttpClient.cpp`**
-- Function as the central HTTP requester for the entirety of the program.
-- Provide a thread-safe object-oriented wrapper around `libcurl`.
-- Handle everything from connection timeouts, URL encoding, HTTP GET/POST methods, redirects, and injecting User-Agents (e.g., `Nobody/1.0`).
-
-### 3. Search Engine
-**`src/search/SearchEngine.h` & `src/search/SearchEngine.cpp`**
-- Converts user questions into programmatic search queries.
-- Connects to Google Custom Search Engine (via REST API) and DuckDuckGo (via Instant Answer or HTML endpoint).
-- Strips out duplicates and ranks the links via internal TF-IDF style relevance scoring based on snippet hits matching the user query.
-- Returns a clean standardized `SearchResult` struct (containing `url`, `title`, and `snippet`).
-
-### 4. Boilerplate & Page Scraping
-**`src/scraper/WebScraper.h` & `src/scraper/WebScraper.cpp`**
-- Bypasses API limitations by directly visiting the URLs returned by the `SearchEngine`.
-- Requests HTML dumps of the pages and runs an algorithm to intelligently strip DOM elements, boilerplate (`<nav>`, `<footer>`, `<script>`), and styling. 
-- Leaves behind pure contiguous textual content, clipping large texts based on `max_text_length` to preserve AI context windows. 
-
-### 5. AI Synthesis
-**`src/ai/AIBrain.h` & `src/ai/AIBrain.cpp`**
-- Forms the "AI" component of the stack (communicating externally with LLMs, pre-configured generally to Anthropic's Claude API).
-- Embeds the `SYSTEM_PROMPT` containing constraints telling the AI it's "Nobody" and enforcing anti-hallucination policies.
-- Formats the scraped web contexts and search snippets alongside the user query, orchestrates the API payload, and tracks usage tokens/responses.
-- Automatically extracts citations from the AI's generated response to attribute the original scraped domains.
-
-### 6. The Orchestrator
-**`src/engine/IntelligenceEngine.h` & `src/engine/IntelligenceEngine.cpp`**
-- Houses the `NobodyEngine` class.
-- Dictates the complete program lifecycle: 
-  1. Asking `SearchEngine` for links.
-  2. Passing top-scoring links to `WebScraper`.
-  3. Waiting for scraped text. 
-  4. Pushing all results to the `AIBrain` for final inference.
-- Yields the final `AIResponse` object comprising textual answers, citations, and metadata.
-
-### 7. Interface
-**`src/ui/CLI.h` & `src/ui/CLI.cpp`**
-- The visual loop handling `stdin`/`stdout`.
-- Prettifies the standard output, enforcing ANSI color-coding for citations.
-- Draws search timings and provides an elegant REPL (Read-Eval-Print Loop) for the user to continually prompt Nobody interactively.
+```
+  ██████╗ ███████╗██╗███╗   ██╗████████╗       █████╗ ██╗
+ ██╔═══██╗██╔════╝██║████╗  ██║╚══██╔══╝      ██╔══██╗██║
+ ██║   ██║███████╗██║██╔██╗ ██║   ██║   █████╗███████║██║
+ ██║   ██║╚════██║██║██║╚██╗██║   ██║   ╚════╝██╔══██║██║
+ ╚██████╔╝███████║██║██║ ╚████║   ██║         ██║  ██║██║
+  ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝         ╚═╝  ╚═╝╚═╝
+```
 
 ---
 
-## Build System & Initialization
-- **`CMakeLists.txt` & `build.sh`**: Setup rules for CMake compilation. Since Nobody relies purely on robust system-wide dependencies (`nlohmann-json`, `libcurl`, `spdlog`), it uses these build files to locate the system `.so` libraries and link the resulting executable securely into the root directory.
-- **`config.json`**: An optional dot-style setting file providing fallback keys and search depth configurations (e.g., number of models, toggle booleans for DDG/Google) in the absence of user-provided Environment Variables.
+## How It Works
+
+Every query goes through a 3-step pipeline:
+
+```
+User Query
+    │
+    ▼
+[1] SearchEngine  ──► DuckDuckGo HTML + Instant Answer (+ Google CSE if configured)
+    │                 Deduplicates & ranks results by TF-IDF relevance
+    ▼
+[2] WebScraper    ──► Fetches HTML of top URLs, strips boilerplate,
+    │                 extracts clean article text (no regex stack-overflow issues)
+    ▼
+[3] AIBrain       ──► Bundles context + query → sends to local Ollama model
+    │                 Parses answer & extracts domain citations
+    ▼
+CLI Output (coloured, cited, timed)
+```
+
+---
+
+## Features
+
+- **100% offline AI** — uses your local Ollama model (Llama 3, Phi-4, etc.). No cloud API keys needed.
+- **Live web search** — queries DuckDuckGo by default; optionally Google Custom Search.
+- **Smart web scraping** — fetches and extracts clean readable text from real pages.
+- **Intent classification** — automatically detects query type (fact lookup, person, news, technical, deep research) and adjusts scraping depth accordingly.
+- **Anti-hallucination** — the AI is only allowed to cite facts from the fetched web context.
+- **Cited answers** — sources listed by domain at the end of every response.
+- **Interactive REPL** — persistent conversation with history, or single-shot query mode.
+- **Configurable** — all settings via `config.json` or environment variables.
+
+---
+
+## Dependencies
+
+| Library | Purpose |
+|---|---|
+| `libcurl` | All HTTP requests (search, scraping, Ollama) |
+| `nlohmann-json` | JSON parsing for APIs |
+| `spdlog` | Structured logging |
+| `fmt` | String formatting |
+| `Ollama` | Local LLM inference (separate install) |
 
 ---
 
 ## Installation & Setup
 
-Follow these steps to compile and run Nobody on a Linux system:
-
-### 1. Install System Dependencies
-Nobody relies on globally available C++ libraries instead of isolated virtual environments. Install them via your package manager (e.g., `apt` for Debian/Ubuntu):
+### 1. Install System Libraries
 
 ```bash
 sudo apt update
 sudo apt install -y cmake build-essential libcurl4-openssl-dev nlohmann-json3-dev libfmt-dev libspdlog-dev
 ```
 
-### 2. Configure API Keys
-You need at least an Anthropic Core API key to synthesize answers. Google Custom Search is optional but recommended.
-You can configure them by exporting environment variables:
+### 2. Install Ollama
+
+Ollama runs open-source AI models locally on your machine.
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GOOGLE_API_KEY="your-google-api-key"
-export GOOGLE_CX="your-google-cx"
+curl -fsSL https://ollama.com/install.sh | sh
 ```
-*(Alternatively, you can place these keys inside the `config.json` file in the root directory).*
 
-### 3. Build the Software
-Compile the source code using the provided bash script or standard CMake commands:
+### 3. Pull a Model
 
-**Option A (Using build script):**
+Pull at least one model. Recommended options:
+
+| Model | Speed | Quality | Command |
+|---|---|---|---|
+| `llama3.1:latest` | Slow | Best | `ollama pull llama3.1` |
+| `llama3.2:latest` | Medium | Great | `ollama pull llama3.2` |
+| `phi4:latest` | Fast | Good | `ollama pull phi4` |
+| `phi3.5:latest` | Fastest | Good | `ollama pull phi3.5` |
+
 ```bash
+ollama pull llama3.1
+```
+
+### 4. Build Nobody
+
+Clone (or navigate to) the project directory and run the build script:
+
+```bash
+cd /path/to/Agent
 chmod +x build.sh
 ./build.sh
 ```
 
-**Option B (Manual CMake):**
-```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+The compiled binary will be at `./build/nobody`.
+
+---
+
+## Configuration
+
+Nobody reads settings from `config.json` in the project root. All values can be overridden with environment variables.
+
+```json
+{
+  "ollama_model":   "llama3.1:latest",
+  "google_api_key": "",
+  "google_cx":      "",
+
+  "search": {
+    "max_results":    8,
+    "use_duckduckgo": true,
+    "use_google":     false,
+    "language":       "en"
+  },
+
+  "scraper": {
+    "pages_to_scrape":   3,
+    "max_text_length":   6000,
+    "timeout_seconds":   20,
+    "strip_boilerplate": true
+  },
+
+  "ai": {
+    "model":       "llama3.1:latest",
+    "max_tokens":  1500,
+    "temperature": 0.3
+  },
+
+  "ui": {
+    "color":               true,
+    "show_search_results": true,
+    "show_sources":        true,
+    "show_timing":         true
+  },
+
+  "logging": {
+    "level": "warn"
+  }
+}
 ```
 
-### 4. Running the Program
-After compiling, the `nobody` binary will be available (usually in `build/` or installed in `bin/`).
+---
 
-**Interactive Mode (REPL):**
-Starts an interactive terminal session where you can repeatedly query Nobody.
+## Running the Software
+
+### Make sure Ollama is running first
+
 ```bash
-./nobody
+ollama serve
+```
+*(Leave this running in a separate terminal, or run it in the background with `ollama serve &`)*
+
+---
+
+### Interactive Mode (REPL)
+
+Starts a persistent chat session. Type questions and get answers. Use `/help` for commands.
+
+```bash
+./build/nobody
 ```
 
-**Single Query Mode:**
-Executes a single search quickly without dropping into the interactive shell. Useful for scripting.
+**In-session commands:**
+
+| Command | Description |
+|---|---|
+| `/help` | Show available commands |
+| `/clear` | Clear conversation history |
+| `/history` | Show conversation history |
+| `/sources on\|off` | Toggle source URL display |
+| `/search on\|off` | Toggle web results display |
+| `/timing on\|off` | Toggle timing info |
+| `/quit` or `/exit` | Exit Nobody |
+
+---
+
+### Single Query Mode
+
+Run a one-shot query and exit. Good for scripting.
+
 ```bash
-./nobody -q "What is the latest advancement in fusion energy?"
+./build/nobody -q "What is quantum entanglement?"
 ```
 
-**Disable Scraping for Speed:**
-To perform standard searches without fetching and extracting deep HTML, use the `--no-scrape` or `-n` flag.
+Or pass the query as a positional argument:
+
 ```bash
-./nobody --no-scrape -q "Current stock price of AAPL"
+./build/nobody "Who founded SpaceX?"
+```
+
+---
+
+### CLI Flags
+
+| Flag | Description |
+|---|---|
+| `-q`, `--query <text>` | Run a single query non-interactively |
+| `-n`, `--no-scrape` | Skip web page scraping (faster, snippets only) |
+| `-s`, `--no-search-ui` | Hide the search results list |
+| `-t`, `--no-timing` | Hide timing information |
+| `-v`, `--verbose` | Enable debug logging (shows full pipeline) |
+| `--no-color` | Disable ANSI colour output |
+| `-h`, `--help` | Show help message |
+
+---
+
+### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `OLLAMA_MODEL` | Override the model (e.g. `phi4:latest`) |
+| `GOOGLE_API_KEY` | Google Custom Search API key (optional) |
+| `GOOGLE_CX` | Google Custom Search Engine ID (optional) |
+| `NOBODY_LOG_LEVEL` | `debug` / `info` / `warn` / `error` |
+| `NOBODY_NO_COLOR` | Set to any value to disable colours |
+| `NOBODY_NO_SCRAPE` | Set to any value to disable scraping |
+
+---
+
+## Usage Examples
+
+**General knowledge:**
+```bash
+./build/nobody -q "What is quantum entanglement?"
+```
+
+**Fast mode (no scraping, snippets only):**
+```bash
+./build/nobody --no-scrape -q "Current population of India"
+```
+
+**Use a faster local model:**
+```bash
+OLLAMA_MODEL=phi3.5:latest ./build/nobody -q "Explain black holes"
+```
+
+**Debug mode (see the full pipeline — search → scrape → AI):**
+```bash
+NOBODY_LOG_LEVEL=debug ./build/nobody -q "Who is Linus Torvalds?"
+```
+
+**Interactive session with Google also enabled:**
+```bash
+GOOGLE_API_KEY=your_key GOOGLE_CX=your_cx ./build/nobody
+```
+
+---
+
+## Known Behaviour
+
+- **First query takes 30–120 seconds** — Ollama generates the full answer locally. Use `--no-scrape` or a lighter model (`phi3.5`, `phi4`) for faster responses.
+- **DuckDuckGo is always used** by default. Google is opt-in and requires API keys.
+- **Conversation history** is maintained within the interactive REPL session (last 10 turns).
+- If Ollama is not running, the software will show a clear error message and gracefully print the raw search results instead of crashing.
+
+---
+
+## Project Structure
+
+```
+Agent/
+├── src/
+│   ├── main.cpp                    # Entry point, wires all components
+│   ├── core/
+│   │   ├── HttpClient.h/.cpp       # Thread-safe libcurl wrapper
+│   ├── search/
+│   │   ├── SearchEngine.h/.cpp     # DuckDuckGo + Google search
+│   ├── scraper/
+│   │   ├── WebScraper.h/.cpp       # HTML fetcher & text extractor
+│   ├── ai/
+│   │   ├── AIBrain.h/.cpp          # Ollama API client & prompt builder
+│   ├── engine/
+│   │   ├── IntelligenceEngine.h/.cpp  # Pipeline orchestrator
+│   └── ui/
+│       ├── CLI.h/.cpp              # Terminal REPL & output formatting
+├── tests/
+│   └── test_main.cpp               # Unit tests
+├── config.json                     # Default configuration
+├── CMakeLists.txt                  # CMake build config
+├── build.sh                        # One-shot build script
+├── overview.md                     # High-level project overview
+└── DOCUMENTATION.md                # Detailed architecture documentation
 ```

@@ -2,7 +2,7 @@
 // =============================================================================
 //  ai/AIBrain.h
 //  Sends gathered context (search snippets + scraped pages) to the
-//  Anthropic Claude API and returns a structured, cited answer.
+//  Ollama Local API and returns a structured, cited answer.
 // =============================================================================
 
 #include "core/HttpClient.h"
@@ -44,7 +44,7 @@ struct Message {
 // ── AIBrain config ────────────────────────────────────────────────────────────
 struct AIConfig {
     std::string api_key;
-    std::string model          = "claude-sonnet-4-20250514";
+    std::string model          = "llama3";
     int         max_tokens     = 2048;
     double      temperature    = 0.3;   // low = more factual
     bool        stream         = false;
@@ -79,7 +79,7 @@ private:
     std::shared_ptr<HttpClient> http_;
     AIConfig config_;
 
-    static const std::string ANTHROPIC_API_URL;
+    static const std::string OLLAMA_API_URL;
     static const std::string SYSTEM_PROMPT;
 
     std::string build_context_block(

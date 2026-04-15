@@ -48,9 +48,9 @@ void CLI::print_banner() {
   ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝         ╚═╝  ╚═╝╚═╝
 )" << col::RESET << "\n";
 
-    std::cout << c(col::BOLD, "  Open Source Intelligence AI  ")
+    std::cout << c(col::BOLD, fmt::format("  {}Nobody{}  ", col::CYAN, col::RESET))
               << c(col::DIM,  "v1.0.0\n")
-              << c(col::DIM,  "  Powered by live web search + Claude AI\n\n")
+              << c(col::DIM,  "  Powered by live web search + Local Ollama AI\n\n")
               << "  Type a question or command. Type "
               << c(col::YELLOW, "/help") << " for help.\n"
               << "  " << c(col::DIM, std::string(60,'-')) << "\n\n";

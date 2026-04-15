@@ -18,8 +18,8 @@ using json = nlohmann::json;
 namespace nobody {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const std::string AIBrain::ANTHROPIC_API_URL =
-    "https://api.anthropic.com/v1/messages";
+const std::string AIBrain::OLLAMA_API_URL =
+    "http://localhost:11434/api/chat";
 
 const std::string AIBrain::SYSTEM_PROMPT = R"(You are Nobody, an AI assistant.
 You answer questions by reasoning over real-time information gathered from the web.
@@ -84,43 +84,46 @@ AIResponse AIBrain::call_api(const std::vector<Message>& messages,
     AIResponse result;
     result.model = config_.model;
 
-    if (config_.api_key.empty()) {
-        result.error   = "ANTHROPIC_API_KEY is not set";
-        result.success = false;
-        spdlog::error("[AIBrain] {}", result.error);
-        return result;
-    }
-
     // ── Build JSON body ────────────────────────────────────────────────────
     json body;
     body["model"]      = config_.model;
-    body["max_tokens"] = config_.max_tokens;
+    body["stream"]     = false;
 
-    if (!system_prompt.empty()) body["system"] = system_prompt;
+    json options;
+    options["num_predict"] = config_.max_tokens;
+    if (config_.temperature >= 0.0) options["temperature"] = config_.temperature;
+    body["options"] = options;
 
     json msgs_json = json::array();
+    if (!system_prompt.empty()) {
+        msgs_json.push_back({{"role", "system"}, {"content", system_prompt}});
+    }
+
     for (const auto& m : messages) {
         msgs_json.push_back({{"role", m.role}, {"content", m.content}});
     }
     body["messages"] = msgs_json;
 
-    if (config_.temperature >= 0.0)
-        body["temperature"] = config_.temperature;
-
     // ── HTTP request ───────────────────────────────────────────────────────
-    auto resp = http_->post(
-        ANTHROPIC_API_URL,
-        body.dump(),
-        {
-            {"x-api-key",         config_.api_key},
-            {"anthropic-version", "2023-06-01"},
-            {"content-type",      "application/json"},
-            {"accept",            "application/json"},
-        }
-    );
+    // Local LLM inference can take minutes; use a long timeout.
+    HttpRequest req;
+    req.method          = "POST";
+    req.url             = OLLAMA_API_URL;
+    req.body            = body.dump();
+    req.headers         = {{"content-type", "application/json"}, {"accept", "application/json"}};
+    req.timeout_seconds = 300; // 5 minutes for local model inference
+    req.connect_timeout = 10;
+    auto resp = http_->execute(req);
 
     if (!resp.is_ok()) {
-        result.error   = fmt::format("API HTTP error {}: {}", resp.status_code, resp.body);
+        // Give a helpful error if Ollama isn't running
+        if (resp.status_code == 0 || resp.error.find("refused") != std::string::npos
+            || resp.error.find("connect") != std::string::npos) {
+            result.error = "Cannot connect to Ollama at localhost:11434. "
+                           "Is Ollama running? Start it with: ollama serve";
+        } else {
+            result.error = fmt::format("Ollama HTTP error {}: {}", resp.status_code, resp.body);
+        }
         result.success = false;
         spdlog::error("[AIBrain] {}", result.error);
         return result;
@@ -130,25 +133,17 @@ AIResponse AIBrain::call_api(const std::vector<Message>& messages,
     try {
         auto j = json::parse(resp.body);
 
-        // Usage
-        if (j.contains("usage")) {
-            result.input_tokens  = j["usage"].value("input_tokens",  0);
-            result.output_tokens = j["usage"].value("output_tokens", 0);
-        }
+        // Usage mapping for Ollama
+        result.input_tokens  = j.value("prompt_eval_count", 0);
+        result.output_tokens = j.value("eval_count", 0);
 
-        // Content — Claude returns an array of content blocks
-        if (!j.contains("content") || !j["content"].is_array()) {
-            result.error   = "Unexpected API response: missing 'content'";
+        if (!j.contains("message") || !j["message"].contains("content")) {
+            result.error   = "Unexpected API response: missing 'message.content'";
             result.success = false;
             return result;
         }
 
-        std::ostringstream text;
-        for (const auto& block : j["content"]) {
-            if (block.value("type","") == "text")
-                text << block.value("text","");
-        }
-        result.answer  = text.str();
+        result.answer  = j["message"].value("content", "");
         result.success = true;
 
         spdlog::info("[AIBrain] Response: {} input tokens, {} output tokens",

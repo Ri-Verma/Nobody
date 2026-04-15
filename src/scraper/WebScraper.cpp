@@ -139,36 +139,59 @@ std::string WebScraper::extract_text(const std::string& html,
     std::string h = html;
 
     if (strip_boilerplate) {
-        // Remove common boilerplate sections
-        static const std::vector<std::pair<std::string,std::string>> remove_tags = {
-            {"script",  ""}, {"style",   ""}, {"noscript", ""},
-            {"head",    ""}, {"iframe",  ""}, {"svg",      ""},
+        // ── Safe iterative tag-pair stripper ──────────────────────────────────
+        // NOTE: GCC std::regex with [\s\S]*? causes exponential backtracking
+        // and stack overflow (SIGSEGV) on large HTML pages. We use linear
+        // string search instead.
+        auto remove_tag_blocks = [](std::string& s, const std::string& tag) {
+            std::string open  = "<" + tag;
+            std::string close = "</" + tag + ">";
+            size_t pos = 0;
+            while (pos < s.size()) {
+                // Find next occurrence of opening tag
+                size_t found = s.find(open, pos);
+                if (found == std::string::npos) break;
+                // Verify next char after tag name is '>' or space (not e.g. <header matching <head>)
+                if (found + open.size() < s.size()) {
+                    char next = s[found + open.size()];
+                    if (next != '>' && next != ' ' && next != '\t' && next != '\n' && next != '\r') {
+                        pos = found + 1; continue;
+                    }
+                }
+                size_t close_pos = s.find(close, found);
+                if (close_pos == std::string::npos) break;
+                s.erase(found, close_pos + close.size() - found);
+                pos = found;
+            }
         };
-        for (const auto& [tag, _] : remove_tags) {
-            std::regex re("<" + tag + R"([^>]*>[\s\S]*?</)" + tag + ">",
-                          std::regex::icase | std::regex::ECMAScript);
-            h = std::regex_replace(h, re, " ");
-        }
 
-        // Try to isolate <main>, <article>, or <body> content
-        std::regex article_re(R"(<(?:main|article)[^>]*>([\s\S]*?)</(?:main|article)>)",
-                               std::regex::icase);
-        std::smatch m;
-        if (std::regex_search(h, m, article_re)) {
-            h = m[1].str();
-        } else {
-            // Fall back to body
-            std::regex body_re(R"(<body[^>]*>([\s\S]*?)</body>)",
-                                std::regex::icase);
-            if (std::regex_search(h, m, body_re)) h = m[1].str();
-        }
+        for (const std::string& tag : {"script","style","noscript","head","iframe","svg"})
+            remove_tag_blocks(h, tag);
 
-        // Remove nav, footer, header, aside
-        for (const std::string& tag : {"nav","footer","header","aside"}) {
-            std::regex re("<" + tag + R"([^>]*>[\s\S]*?</)" + tag + ">",
-                          std::regex::icase);
-            h = std::regex_replace(h, re, " ");
-        }
+        // ── Extract main content via simple find (no regex) ───────────────────
+        auto extract_between = [](const std::string& src,
+                                  const std::string& open_tag,
+                                  const std::string& close_tag) -> std::string {
+            std::string s_low = src;
+            std::transform(s_low.begin(), s_low.end(), s_low.begin(), ::tolower);
+            size_t start = s_low.find(open_tag);
+            if (start == std::string::npos) return "";
+            size_t gt = src.find('>', start);
+            if (gt == std::string::npos) return "";
+            size_t content_start = gt + 1;
+            size_t end = s_low.find(close_tag, content_start);
+            if (end == std::string::npos) return "";
+            return src.substr(content_start, end - content_start);
+        };
+
+        std::string extracted;
+        extracted = extract_between(h, "<main",    "</main>");
+        if (extracted.empty()) extracted = extract_between(h, "<article", "</article>");
+        if (extracted.empty()) extracted = extract_between(h, "<body",    "</body>");
+        if (!extracted.empty()) h = extracted;
+
+        for (const std::string& tag : {"nav","footer","header","aside"})
+            remove_tag_blocks(h, tag);
     }
 
     // Strip all remaining HTML tags

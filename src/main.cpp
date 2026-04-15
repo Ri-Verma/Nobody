@@ -5,7 +5,7 @@
 //  Then hands control to the CLI REPL.
 //
 //  Environment variables:
-//    ANTHROPIC_API_KEY   (required for AI synthesis)
+//    OLLAMA_MODEL        (default: llama3)
 //    GOOGLE_API_KEY      (optional, for Google CSE)
 //    GOOGLE_CX           (optional, Google Custom Search Engine ID)
 //    NOBODY_LOG_LEVEL     (debug|info|warn|error, default: info)
@@ -42,11 +42,14 @@ static std::string getenv_str(const char* name, const std::string& def = "") {
 }
 
 // ── Load optional JSON config ─────────────────────────────────────────────────
-static json load_config(const std::string& path = "config/config.json") {
+static json load_config(const std::string& path = "config.json") {
     std::ifstream f(path);
-    if (!f.is_open()) return {};
-    try { return json::parse(f); }
-    catch (...) { return {}; }
+    if (!f.is_open()) return json::object();
+    try { 
+        json j = json::parse(f); 
+        return j.is_object() ? j : json::object();
+    }
+    catch (...) { return json::object(); }
 }
 
 // ── Logging setup ─────────────────────────────────────────────────────────────
@@ -75,7 +78,7 @@ Options:
   -h, --help            Show this help
 
 Environment variables:
-  ANTHROPIC_API_KEY     Anthropic Claude API key (required)
+  OLLAMA_MODEL          Ollama local model (default: llama3)
   GOOGLE_API_KEY        Google Custom Search API key (optional)
   GOOGLE_CX             Google Custom Search Engine ID (optional)
   NOBODY_LOG_LEVEL       debug|info|warn|error (default: info)
@@ -120,20 +123,13 @@ int main(int argc, char* argv[]) {
     // ── Config file ───────────────────────────────────────────────────────
     auto cfg = load_config();
 
-    // ── API Keys ──────────────────────────────────────────────────────────
-    std::string anthropic_key = getenv_str("ANTHROPIC_API_KEY",
-        cfg.value("anthropic_api_key", ""));
+    // ── Configuration ─────────────────────────────────────────────────────
+    std::string ollama_model = getenv_str("OLLAMA_MODEL",
+        cfg.value("ollama_model", "llama3"));
     std::string google_key    = getenv_str("GOOGLE_API_KEY",
         cfg.value("google_api_key", ""));
     std::string google_cx     = getenv_str("GOOGLE_CX",
         cfg.value("google_cx", ""));
-
-    if (anthropic_key.empty()) {
-        fmt::print(stderr,
-            "\n  ⚠  ANTHROPIC_API_KEY not set.\n"
-            "     The AI synthesis step will fail.\n"
-            "     Export it with:  export ANTHROPIC_API_KEY=sk-ant-...\n\n");
-    }
 
     // ── Build the dependency graph ────────────────────────────────────────
     //
@@ -143,7 +139,7 @@ int main(int argc, char* argv[]) {
     //      │                                            │
     //      ├─► WebScraper (fetch & clean HTML)         │
     //      │                                            ▼
-    //      └─► AIBrain  (Anthropic Claude API)     NobodyEngine
+    //      └─► AIBrain  (Ollama Local API)         NobodyEngine
     //                                                   │
     //                                                   ▼
     //                                                  CLI
@@ -164,8 +160,8 @@ int main(int argc, char* argv[]) {
     auto scraper = std::make_shared<WebScraper>(http, scraper_cfg);
 
     AIConfig ai_cfg;
-    ai_cfg.api_key     = anthropic_key;
-    ai_cfg.model       = "claude-sonnet-4-20250514";
+    ai_cfg.api_key     = ""; // Local Ollama
+    ai_cfg.model       = ollama_model;
     ai_cfg.max_tokens  = 1500;
     ai_cfg.temperature = 0.3;
     auto ai = std::make_shared<AIBrain>(http, ai_cfg);

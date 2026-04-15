@@ -65,7 +65,13 @@ NobodyResult NobodyEngine::run(const std::string& query,
     if (config_.enable_scraping && !result.search_results.empty()) {
         spdlog::info("[Nobody] Step 2/3: Scraping web pages...");
         auto urls = select_urls_to_scrape(result.search_results, result.intent);
-        result.scraped_pages = scraper_->scrape_many(urls, config_.pages_to_scrape);
+        // Filter empty URLs before scraping to prevent segfault in libcurl
+        urls.erase(std::remove_if(urls.begin(), urls.end(),
+            [](const std::string& u){ return u.empty() || u.size() < 8; }), urls.end());
+        if (!urls.empty())
+            result.scraped_pages = scraper_->scrape_many(urls, config_.pages_to_scrape);
+        else
+            spdlog::warn("[Nobody] No valid URLs to scrape");
         spdlog::info("[Nobody] Scraped {} pages successfully",
                      result.scraped_pages.size());
     } else {
