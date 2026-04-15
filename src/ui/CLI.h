@@ -1,14 +1,14 @@
 #pragma once
 // =============================================================================
-//  ui/CLI.h  —  Terminal user interface for osint-ai
+//  ui/CLI.h  —  Terminal user interface for Nobody
 // =============================================================================
 
-#include "osint/OSINTEngine.h"
+#include "engine/IntelligenceEngine.h"
 #include <string>
 #include <memory>
 #include <vector>
 
-namespace osint {
+namespace nobody {
 
 struct CLIConfig {
     bool show_search_results = true;
@@ -21,7 +21,7 @@ struct CLIConfig {
 
 class CLI {
 public:
-    explicit CLI(std::shared_ptr<OSINTEngine> engine, CLIConfig config = {});
+    explicit CLI(std::shared_ptr<NobodyEngine> engine, CLIConfig config = {});
 
     // Blocking REPL loop
     void run();
@@ -33,14 +33,14 @@ public:
     void print_help();
 
 private:
-    std::shared_ptr<OSINTEngine> engine_;
+    std::shared_ptr<NobodyEngine> engine_;
     CLIConfig config_;
     std::vector<Message> history_;
 
     void print_search_results(const std::vector<SearchResult>& results);
     void print_answer(const AIResponse& response);
     void print_sources(const std::vector<Citation>& citations);
-    void print_timing(const OSINTResult& result);
+    void print_timing(const NobodyResult& result);
 
     // Colors
     std::string c(const std::string& code, const std::string& text) const;
@@ -48,4 +48,4 @@ private:
     bool handle_command(const std::string& cmd);
 };
 
-} // namespace osint
+} // namespace nobody

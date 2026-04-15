@@ -1,23 +1,23 @@
 // =============================================================================
-//  main.cpp  —  osint-ai entry point
+//  main.cpp  —  Nobody entry point
 //
-//  Wires up: HttpClient → SearchEngine + WebScraper → AIBrain → OSINTEngine
+//  Wires up: HttpClient → SearchEngine + WebScraper → AIBrain → IntelligenceEngine
 //  Then hands control to the CLI REPL.
 //
 //  Environment variables:
 //    ANTHROPIC_API_KEY   (required for AI synthesis)
 //    GOOGLE_API_KEY      (optional, for Google CSE)
 //    GOOGLE_CX           (optional, Google Custom Search Engine ID)
-//    OSINT_LOG_LEVEL     (debug|info|warn|error, default: info)
-//    OSINT_NO_COLOR      (set to disable ANSI colours)
-//    OSINT_NO_SCRAPE     (set to disable web scraping)
+//    NOBODY_LOG_LEVEL     (debug|info|warn|error, default: info)
+//    NOBODY_NO_COLOR      (set to disable ANSI colours)
+//    NOBODY_NO_SCRAPE     (set to disable web scraping)
 // =============================================================================
 
 #include "core/HttpClient.h"
 #include "search/SearchEngine.h"
 #include "scraper/WebScraper.h"
 #include "ai/AIBrain.h"
-#include "osint/OSINTEngine.h"
+#include "engine/IntelligenceEngine.h"
 #include "ui/CLI.h"
 
 #include <spdlog/spdlog.h>
@@ -33,7 +33,7 @@
 #include <stdexcept>
 
 using json = nlohmann::json;
-using namespace osint;
+using namespace nobody;
 
 // ── Env helper ────────────────────────────────────────────────────────────────
 static std::string getenv_str(const char* name, const std::string& def = "") {
@@ -51,7 +51,7 @@ static json load_config(const std::string& path = "config/config.json") {
 
 // ── Logging setup ─────────────────────────────────────────────────────────────
 static void setup_logging(const std::string& level) {
-    auto logger = spdlog::stdout_color_mt("osint");
+    auto logger = spdlog::stdout_color_mt("nobody");
     spdlog::set_default_logger(logger);
     if      (level == "debug") spdlog::set_level(spdlog::level::debug);
     else if (level == "warn")  spdlog::set_level(spdlog::level::warn);
@@ -78,7 +78,7 @@ Environment variables:
   ANTHROPIC_API_KEY     Anthropic Claude API key (required)
   GOOGLE_API_KEY        Google Custom Search API key (optional)
   GOOGLE_CX             Google Custom Search Engine ID (optional)
-  OSINT_LOG_LEVEL       debug|info|warn|error (default: info)
+  NOBODY_LOG_LEVEL       debug|info|warn|error (default: info)
 
 Examples:
   {} "What is quantum entanglement?"
@@ -91,8 +91,8 @@ Examples:
 int main(int argc, char* argv[]) {
     // ── Parse CLI args ─────────────────────────────────────────────────────
     std::string single_query;
-    bool        no_scrape      = getenv_str("OSINT_NO_SCRAPE")  != "";
-    bool        no_color       = getenv_str("OSINT_NO_COLOR")   != "";
+    bool        no_scrape      = getenv_str("NOBODY_NO_SCRAPE")  != "";
+    bool        no_color       = getenv_str("NOBODY_NO_COLOR")   != "";
     bool        show_search    = true;
     bool        show_timing    = true;
     bool        verbose        = false;
@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
     }
 
     // ── Logging ───────────────────────────────────────────────────────────
-    setup_logging(verbose ? "debug" : getenv_str("OSINT_LOG_LEVEL", "warn"));
+    setup_logging(verbose ? "debug" : getenv_str("NOBODY_LOG_LEVEL", "warn"));
 
     // ── Config file ───────────────────────────────────────────────────────
     auto cfg = load_config();
@@ -143,7 +143,7 @@ int main(int argc, char* argv[]) {
     //      │                                            │
     //      ├─► WebScraper (fetch & clean HTML)         │
     //      │                                            ▼
-    //      └─► AIBrain  (Anthropic Claude API)     OSINTEngine
+    //      └─► AIBrain  (Anthropic Claude API)     NobodyEngine
     //                                                   │
     //                                                   ▼
     //                                                  CLI
@@ -174,7 +174,7 @@ int main(int argc, char* argv[]) {
     engine_cfg.max_search_results = 8;
     engine_cfg.pages_to_scrape    = 3;
     engine_cfg.enable_scraping    = !no_scrape;
-    auto engine = std::make_shared<OSINTEngine>(http, search, scraper, ai, engine_cfg);
+    auto engine = std::make_shared<NobodyEngine>(http, search, scraper, ai, engine_cfg);
 
     CLIConfig cli_cfg;
     cli_cfg.show_search_results = show_search;

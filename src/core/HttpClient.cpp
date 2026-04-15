@@ -12,7 +12,7 @@
 #include <cassert>
 #include <iomanip>
 
-namespace osint {
+namespace nobody {
 
 // ── is_html / is_json helpers ─────────────────────────────────────────────────
 bool HttpResponse::is_html() const {
@@ -246,4 +246,4 @@ std::string HttpClient::build_query_string(
     return oss.str();
 }
 
-} // namespace osint
+} // namespace nobody

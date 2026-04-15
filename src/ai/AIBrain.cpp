@@ -15,13 +15,13 @@
 
 using json = nlohmann::json;
 
-namespace osint {
+namespace nobody {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const std::string AIBrain::ANTHROPIC_API_URL =
     "https://api.anthropic.com/v1/messages";
 
-const std::string AIBrain::SYSTEM_PROMPT = R"(You are an OSINT (Open Source Intelligence) AI assistant.
+const std::string AIBrain::SYSTEM_PROMPT = R"(You are Nobody, an AI assistant.
 You answer questions by reasoning over real-time information gathered from the web.
 Your answers are:
   - Factual and grounded in the provided web context
@@ -253,4 +253,4 @@ std::vector<Citation> AIBrain::extract_citations(
     return citations;
 }
 
-} // namespace osint
+} // namespace nobody

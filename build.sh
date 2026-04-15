@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  build.sh  —  Build osint-ai (activates venv automatically)
+#  build.sh  —  Build Nobody (Web Intelligence Engine)
 #  Usage:  ./build.sh [debug|release] [clean]
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/venv"
 BUILD_TYPE="${1:-Release}"
 CLEAN="${2:-}"
 BUILD_DIR="$SCRIPT_DIR/build"
@@ -20,18 +19,6 @@ case "${BUILD_TYPE,,}" in
     release) BUILD_TYPE="Release" ;;
     *)       BUILD_TYPE="Release" ;;
 esac
-
-# Check venv
-if [ ! -f "$VENV_DIR/.activated" ]; then
-    echo -e "${RED}ERROR: Virtual environment not found.${RESET}"
-    echo "Please run:  bash setup_venv.sh"
-    exit 1
-fi
-
-# Activate venv environment variables (inline — no sourcing needed)
-export CMAKE_PREFIX_PATH="$VENV_DIR${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
-export PKG_CONFIG_PATH="$VENV_DIR/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-export PATH="$VENV_DIR/bin:$PATH"
 
 echo -e "${BOLD}${CYAN}[build]${RESET} Build type: $BUILD_TYPE | Jobs: $BUILD_JOBS"
 
@@ -47,7 +34,6 @@ mkdir -p "$BUILD_DIR"
 echo -e "${CYAN}[build]${RESET} Configuring with CMake..."
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DCMAKE_PREFIX_PATH="$VENV_DIR" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -Wno-dev
 
@@ -57,8 +43,8 @@ cmake --build "$BUILD_DIR" -j"$BUILD_JOBS"
 
 echo ""
 echo -e "${GREEN}[build] ✓ Build successful!${RESET}"
-echo -e "${GREEN}[build]   Executable: $BUILD_DIR/osint_ai${RESET}"
+echo -e "${GREEN}[build]   Executable: $BUILD_DIR/nobody${RESET}"
 echo ""
-echo "  Run:  $BUILD_DIR/osint_ai"
-echo "  Help: $BUILD_DIR/osint_ai --help"
+echo "  Run:  $BUILD_DIR/nobody"
+echo "  Help: $BUILD_DIR/nobody --help"
 echo ""

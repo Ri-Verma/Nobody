@@ -16,7 +16,7 @@
 
 using json = nlohmann::json;
 
-namespace osint {
+namespace nobody {
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 SearchEngine::SearchEngine(std::shared_ptr<HttpClient> http, SearchConfig config)
@@ -261,10 +261,10 @@ double SearchEngine::compute_relevance(const SearchResult& r,
     return n > 0 ? score / (n * 3.0) : 0.5;
 }
 
-// ── OSINT query builder ───────────────────────────────────────────────────────
-std::string SearchEngine::build_osint_query(const std::string& raw) {
+// ── Nobody query builder ──────────────────────────────────────────────────────
+std::string SearchEngine::build_nobody_query(const std::string& raw) {
     // Could be extended with dork-style operators, entity detection, etc.
     return raw;
 }
 
-} // namespace osint
+} // namespace nobody

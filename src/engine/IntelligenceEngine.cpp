@@ -1,8 +1,8 @@
 // =============================================================================
-//  osint/OSINTEngine.cpp
+//  engine/IntelligenceEngine.cpp
 // =============================================================================
 
-#include "osint/OSINTEngine.h"
+#include "engine/IntelligenceEngine.h"
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -11,10 +11,10 @@
 #include <cctype>
 #include <regex>
 
-namespace osint {
+namespace nobody {
 
 // ── Constructor ───────────────────────────────────────────────────────────────
-OSINTEngine::OSINTEngine(
+NobodyEngine::NobodyEngine(
         std::shared_ptr<HttpClient>   http,
         std::shared_ptr<SearchEngine> search,
         std::shared_ptr<WebScraper>   scraper,
@@ -27,20 +27,20 @@ OSINTEngine::OSINTEngine(
     , config_(std::move(config)) {}
 
 // ── run (main pipeline) ───────────────────────────────────────────────────────
-OSINTResult OSINTEngine::run(const std::string& query,
+NobodyResult NobodyEngine::run(const std::string& query,
                                const std::vector<Message>& history) {
     auto t_start = std::chrono::steady_clock::now();
 
-    OSINTResult result;
+    NobodyResult result;
     result.query  = query;
     result.intent = classify_intent(query);
 
-    spdlog::info("[OSINT] ── Pipeline start ───────────────────────────────");
-    spdlog::info("[OSINT] Query  : \"{}\"", query);
-    spdlog::info("[OSINT] Intent : {}", intent_to_string(result.intent));
+    spdlog::info("[Nobody] ── Pipeline start ───────────────────────────────");
+    spdlog::info("[Nobody] Query  : \"{}\"", query);
+    spdlog::info("[Nobody] Intent : {}", intent_to_string(result.intent));
 
     // ── Step 1: Search ────────────────────────────────────────────────────
-    spdlog::info("[OSINT] Step 1/3: Web search...");
+    spdlog::info("[Nobody] Step 1/3: Web search...");
     result.search_results = search_->search(query);
 
     // Also try instant answer for fact lookups
@@ -59,42 +59,43 @@ OSINTResult OSINTEngine::run(const std::string& query,
         }
     }
 
-    spdlog::info("[OSINT] Got {} search results", result.search_results.size());
+    spdlog::info("[Nobody] Got {} search results", result.search_results.size());
 
     // ── Step 2: Scrape ────────────────────────────────────────────────────
     if (config_.enable_scraping && !result.search_results.empty()) {
-        spdlog::info("[OSINT] Step 2/3: Scraping {} pages...",
-                     config_.pages_to_scrape);
+        spdlog::info("[Nobody] Step 2/3: Scraping web pages...");
         auto urls = select_urls_to_scrape(result.search_results, result.intent);
         result.scraped_pages = scraper_->scrape_many(urls, config_.pages_to_scrape);
-        spdlog::info("[OSINT] Scraped {} pages successfully",
+        spdlog::info("[Nobody] Scraped {} pages successfully",
                      result.scraped_pages.size());
     } else {
-        spdlog::info("[OSINT] Step 2/3: Scraping skipped");
+        spdlog::info("[Nobody] Step 2/3: Scraping skipped");
     }
 
-    // ── Step 3: AI Synthesis ──────────────────────────────────────────────
-    spdlog::info("[OSINT] Step 3/3: AI synthesis...");
+    // ── Step 3: Synthesis ─────────────────────────────────────────────────
+    spdlog::info("[Nobody] Step 3/3: AI Synthesis...");
     result.ai_response = ai_->synthesise(
-        query, result.search_results, result.scraped_pages, history);
+        query, result.search_results, result.scraped_pages, history
+    );
 
-    auto t_end = std::chrono::steady_clock::now();
-    result.total_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start);
-    result.success = result.ai_response.success;
+    result.success    = result.ai_response.success;
+    result.total_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t_start
+    );
 
-    spdlog::info("[OSINT] ── Pipeline complete ({} ms) ─────────────────────",
+    spdlog::info("[Nobody] ── Pipeline complete ({} ms) ────────────────",
                  result.total_time.count());
+
     return result;
 }
 
 // ── raw_search ────────────────────────────────────────────────────────────────
-std::vector<SearchResult> OSINTEngine::raw_search(const std::string& query) {
+std::vector<SearchResult> NobodyEngine::raw_search(const std::string& query) {
     return search_->search(query);
 }
 
 // ── Intent classification ─────────────────────────────────────────────────────
-QueryIntent OSINTEngine::classify_intent(const std::string& query) {
+QueryIntent NobodyEngine::classify_intent(const std::string& query) {
     std::string q = query;
     std::transform(q.begin(), q.end(), q.begin(), ::tolower);
 
@@ -134,7 +135,7 @@ QueryIntent OSINTEngine::classify_intent(const std::string& query) {
 }
 
 // ── select_urls_to_scrape ─────────────────────────────────────────────────────
-std::vector<std::string> OSINTEngine::select_urls_to_scrape(
+std::vector<std::string> NobodyEngine::select_urls_to_scrape(
         const std::vector<SearchResult>& results,
         QueryIntent intent) const {
 
@@ -164,7 +165,7 @@ std::vector<std::string> OSINTEngine::select_urls_to_scrape(
 }
 
 // ── intent_to_string ─────────────────────────────────────────────────────────
-std::string OSINTEngine::intent_to_string(QueryIntent i) {
+std::string NobodyEngine::intent_to_string(QueryIntent i) {
     switch (i) {
         case QueryIntent::FACT_LOOKUP:     return "FACT_LOOKUP";
         case QueryIntent::DEEP_RESEARCH:   return "DEEP_RESEARCH";
@@ -175,4 +176,4 @@ std::string OSINTEngine::intent_to_string(QueryIntent i) {
     }
 }
 
-} // namespace osint
+} // namespace nobody

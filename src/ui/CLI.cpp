@@ -11,7 +11,7 @@
 #include <sstream>
 #include <algorithm>
 
-namespace osint {
+namespace nobody {
 
 // ANSI colour codes
 namespace col {
@@ -27,7 +27,7 @@ namespace col {
     constexpr const char* WHITE  = "\033[37m";
 }
 
-CLI::CLI(std::shared_ptr<OSINTEngine> engine, CLIConfig cfg)
+CLI::CLI(std::shared_ptr<NobodyEngine> engine, CLIConfig cfg)
     : engine_(std::move(engine)), config_(std::move(cfg)) {}
 
 // ── Colour helper ─────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ void CLI::run() {
 
     while (true) {
         std::string prompt_color = fmt::format("{}{}", col::BOLD, col::CYAN);
-        std::cout << c(prompt_color, "osint> ") << std::flush;
+        std::cout << c(prompt_color, "nobody> ") << std::flush;
 
         if (!std::getline(std::cin, input)) break; // EOF
 
@@ -205,7 +205,7 @@ void CLI::print_sources(const std::vector<Citation>& citations) {
 }
 
 // ── Timing ────────────────────────────────────────────────────────────────────
-void CLI::print_timing(const OSINTResult& result) {
+void CLI::print_timing(const NobodyResult& result) {
     std::cout << c(col::DIM, fmt::format(
         "  ⏱  {} ms total  |  {} search results  |  {} pages scraped"
         "  |  {} + {} tokens\n",
@@ -265,4 +265,4 @@ bool CLI::handle_command(const std::string& cmd) {
     return true;
 }
 
-} // namespace osint
+} // namespace nobody

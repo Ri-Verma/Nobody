@@ -11,7 +11,7 @@
 #include <sstream>
 #include <cctype>
 
-namespace osint {
+namespace nobody {
 
 WebScraper::WebScraper(std::shared_ptr<HttpClient> http, ScraperConfig config)
     : http_(std::move(http)), config_(std::move(config)) {}
@@ -258,4 +258,4 @@ std::string WebScraper::collapse_whitespace(const std::string& text) {
     return out.substr(start, end - start + 1);
 }
 
-} // namespace osint
+} // namespace nobody

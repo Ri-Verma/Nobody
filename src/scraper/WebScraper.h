@@ -11,7 +11,7 @@
 #include <memory>
 #include <optional>
 
-namespace osint {
+namespace nobody {
 
 struct ScrapedPage {
     std::string url;
@@ -66,4 +66,4 @@ private:
                                        const std::string& val);
 };
 
-} // namespace osint
+} // namespace nobody

@@ -11,7 +11,7 @@
 #include <optional>
 #include <memory>
 
-namespace osint {
+namespace nobody {
 
 // ── A single search result ────────────────────────────────────────────────────
 struct SearchResult {
@@ -59,8 +59,8 @@ public:
     // Google Custom Search (requires API key)
     std::vector<SearchResult> google_search(const std::string& query);
 
-    // Build a focused OSINT query from raw user input
-    static std::string build_osint_query(const std::string& raw_query);
+    // Build a focused Nobody query from raw user input
+    static std::string build_nobody_query(const std::string& raw_query);
 
     void set_config(const SearchConfig& cfg) { config_ = cfg; }
     const SearchConfig& config() const { return config_; }
@@ -76,4 +76,4 @@ private:
                                      const std::string& query);
 };
 
-} // namespace osint
+} // namespace nobody

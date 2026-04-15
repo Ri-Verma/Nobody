@@ -11,7 +11,7 @@
 #include <functional>
 #include <chrono>
 
-namespace osint {
+namespace nobody {
 
 // ── Response ──────────────────────────────────────────────────────────────────
 struct HttpResponse {
@@ -45,7 +45,7 @@ struct HttpRequest {
 class HttpClient {
 public:
     explicit HttpClient(const std::string& user_agent =
-        "osint-ai/1.0 (OSINT AI Research Tool; +https://github.com/osint-ai)");
+        "Nobody/1.0 (Nobody Research Tool; +https://github.com/nobody)");
     ~HttpClient();
 
     // Disable copy, allow move
@@ -89,4 +89,4 @@ private:
                                    std::map<std::string, std::string>* hdrs);
 };
 
-} // namespace osint
+} // namespace nobody

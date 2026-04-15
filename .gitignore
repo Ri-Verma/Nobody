@@ -9,10 +9,12 @@ dist/
 *.dll
 *.dylib
 
+
 # Executables
-osint_ai
-osint_ai_tests
+nobody
+nobody_tests
 *.exe
+
 
 # CMake
 CMakeFiles/
@@ -29,6 +31,7 @@ venv/
 env/
 ENV/
 
+
 # IDE / Editor
 .vscode/
 .idea/
@@ -39,6 +42,7 @@ ENV/
 .project
 .cproject
 *.depend
+
 
 # Python
 __pycache__/

@@ -14,7 +14,7 @@
 #include <memory>
 #include <optional>
 
-namespace osint {
+namespace nobody {
 
 // ── A source citation ─────────────────────────────────────────────────────────
 struct Citation {
@@ -92,4 +92,4 @@ private:
         const std::vector<ScrapedPage>&  pages);
 };
 
-} // namespace osint
+} // namespace nobody

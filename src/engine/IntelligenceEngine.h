@@ -1,7 +1,7 @@
 #pragma once
 // =============================================================================
-//  osint/OSINTEngine.h
-//  Orchestrates the full OSINT pipeline:
+//  engine/IntelligenceEngine.h
+//  Orchestrates the full Nobody pipeline:
 //    1. Classify user intent
 //    2. Build optimised search queries
 //    3. Run multi-backend search
@@ -20,20 +20,20 @@
 #include <memory>
 #include <chrono>
 
-namespace osint {
+namespace nobody {
 
 // ── Intent classification ─────────────────────────────────────────────────────
 enum class QueryIntent {
     FACT_LOOKUP,        // "What is X?" — quick answer, mostly snippets
     DEEP_RESEARCH,      // "Explain / Analyse" — full page scrape needed
-    PERSON_LOOKUP,      // name + context = OSINT enrichment
+    PERSON_LOOKUP,      // name + context = Intelligence enrichment
     CURRENT_EVENTS,     // news-like, recency matters
     TECHNICAL,          // code, specs, documentation
     UNKNOWN
 };
 
 // ── Full pipeline result ──────────────────────────────────────────────────────
-struct OSINTResult {
+struct NobodyResult {
     std::string            query;
     QueryIntent            intent = QueryIntent::UNKNOWN;
     std::vector<SearchResult>  search_results;
@@ -51,17 +51,17 @@ struct EngineConfig {
     bool verbose            = false;
 };
 
-// ── OSINTEngine ───────────────────────────────────────────────────────────────
-class OSINTEngine {
+// ── NobodyEngine ───────────────────────────────────────────────────────────────
+class NobodyEngine {
 public:
-    OSINTEngine(std::shared_ptr<HttpClient>  http,
+    NobodyEngine(std::shared_ptr<HttpClient>  http,
                 std::shared_ptr<SearchEngine> search,
                 std::shared_ptr<WebScraper>   scraper,
                 std::shared_ptr<AIBrain>       ai,
                 EngineConfig config = {});
 
-    // Run the full OSINT pipeline for a user query
-    OSINTResult run(const std::string& query,
+    // Run the full Nobody pipeline for a user query
+    NobodyResult run(const std::string& query,
                     const std::vector<Message>& history = {});
 
     // Just search + return raw results (no AI synthesis)
@@ -87,4 +87,4 @@ private:
     static std::string intent_to_string(QueryIntent i);
 };
 
-} // namespace osint
+} // namespace nobody
