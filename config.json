@@ -16,7 +16,7 @@
     "strip_boilerplate": true
   },
   "ai": {
-    "model": "llama3",
+    "model": "llama3.1:latest",
     "max_tokens": 1500,
     "temperature": 0.3
   },
