@@ -1,5 +1,6 @@
 // =============================================================================
-//  scraper/WebScraper.cpp
+//  scraper/WebScraper.cpp — Concurrent scraping, meta extraction, JSON-LD,
+//                            Wayback fallback
 // =============================================================================
 
 #include "scraper/WebScraper.h"
@@ -10,6 +11,8 @@
 #include <algorithm>
 #include <sstream>
 #include <cctype>
+#include <future>
+#include <mutex>
 
 namespace nobody {
 
@@ -31,6 +34,20 @@ ScrapedPage WebScraper::scrape(const std::string& url) {
     };
 
     auto resp = http_->execute(req);
+
+    // Wayback fallback on failure
+    if (!resp.is_ok() && config_.use_wayback_fallback) {
+        spdlog::debug("[Scraper] Trying Wayback fallback for: {}", url);
+        std::string wb_url = "https://web.archive.org/web/2024/" + url;
+        req.url = wb_url;
+        req.max_retries = 1;
+        resp = http_->execute(req);
+        if (resp.is_ok()) {
+            page.from_wayback = true;
+            spdlog::info("[Scraper] Wayback fallback successful for: {}", url);
+        }
+    }
+
     if (!resp.is_ok()) {
         page.success = false;
         page.error   = fmt::format("HTTP {}: {}", resp.status_code, resp.error);
@@ -38,12 +55,19 @@ ScrapedPage WebScraper::scrape(const std::string& url) {
         return page;
     }
 
-    // Only process HTML
     const std::string& html = resp.body;
     if (config_.retain_html) page.raw_html = html;
 
     page.title = extract_title(html);
     page.text  = extract_text(html, config_.strip_boilerplate);
+
+    // Extract metadata
+    if (config_.extract_meta)
+        page.meta = extract_meta(html);
+
+    // Extract JSON-LD structured data
+    if (config_.extract_structured)
+        page.structured_data = extract_json_ld(html);
 
     // Trim to max length
     if (static_cast<int>(page.text.size()) > config_.max_text_length)
@@ -59,11 +83,12 @@ ScrapedPage WebScraper::scrape(const std::string& url) {
         page.links = extract_links(html, url);
 
     page.success = true;
-    spdlog::info("[Scraper] {} — \"{}\" ({} words)", url, page.title, page.word_count);
+    spdlog::info("[Scraper] {} — \"{}\" ({} words{})", url, page.title,
+                 page.word_count, page.from_wayback ? ", via Wayback" : "");
     return page;
 }
 
-// ── scrape_many ───────────────────────────────────────────────────────────────
+// ── scrape_many (sequential, backward compat) ─────────────────────────────────
 std::vector<ScrapedPage> WebScraper::scrape_many(
         const std::vector<std::string>& urls, int max_pages) {
     std::vector<ScrapedPage> results;
@@ -79,9 +104,167 @@ std::vector<ScrapedPage> WebScraper::scrape_many(
     return results;
 }
 
+// ── scrape_many_concurrent ────────────────────────────────────────────────────
+std::vector<ScrapedPage> WebScraper::scrape_many_concurrent(
+        const std::vector<std::string>& urls, int max_pages) {
+
+    int batch_size = std::min(config_.max_concurrent, static_cast<int>(urls.size()));
+    batch_size = std::min(batch_size, max_pages);
+
+    // Each async task needs its own HttpClient since curl handles aren't thread-safe
+    std::vector<std::future<ScrapedPage>> futures;
+    std::mutex result_mutex;
+    std::vector<ScrapedPage> results;
+
+    // Process in batches
+    for (size_t i = 0; i < urls.size() && static_cast<int>(results.size()) < max_pages; ) {
+        futures.clear();
+        int batch = std::min(batch_size,
+                             static_cast<int>(urls.size() - i));
+
+        for (int j = 0; j < batch && (i + j) < urls.size(); ++j) {
+            const std::string& url = urls[i + j];
+            futures.push_back(std::async(std::launch::async, [this, &url]() {
+                // Create a temporary HttpClient for this thread
+                auto thread_http = std::make_shared<HttpClient>();
+                WebScraper thread_scraper(thread_http, config_);
+                return thread_scraper.scrape(url);
+            }));
+        }
+
+        for (auto& fut : futures) {
+            try {
+                auto page = fut.get();
+                if (page.success && page.word_count > 30) {
+                    std::lock_guard<std::mutex> lock(result_mutex);
+                    if (static_cast<int>(results.size()) < max_pages)
+                        results.push_back(std::move(page));
+                }
+            } catch (const std::exception& e) {
+                spdlog::warn("[Scraper] Async scrape failed: {}", e.what());
+            }
+        }
+
+        i += static_cast<size_t>(batch);
+    }
+
+    spdlog::info("[Scraper] Concurrent scrape: {} pages successful", results.size());
+    return results;
+}
+
+// ── extract_meta ──────────────────────────────────────────────────────────────
+PageMeta WebScraper::extract_meta(const std::string& html) {
+    PageMeta meta;
+
+    auto extract_meta_content = [&](const std::string& h,
+                                     const std::string& attr,
+                                     const std::string& val) -> std::string {
+        // Find <meta name="attr" content="..."> or <meta property="attr" content="...">
+        std::string lower_h = h;
+        std::transform(lower_h.begin(), lower_h.end(), lower_h.begin(), ::tolower);
+
+        std::string search_name = attr + "=\"" + val + "\"";
+        size_t pos = lower_h.find(search_name);
+        if (pos == std::string::npos) {
+            search_name = attr + "='" + val + "'";
+            pos = lower_h.find(search_name);
+        }
+        if (pos == std::string::npos) return "";
+
+        // Find the content attribute nearby
+        size_t tag_start = lower_h.rfind('<', pos);
+        size_t tag_end = lower_h.find('>', pos);
+        if (tag_start == std::string::npos || tag_end == std::string::npos) return "";
+
+        std::string tag = h.substr(tag_start, tag_end - tag_start + 1);
+        std::string tag_lower = lower_h.substr(tag_start, tag_end - tag_start + 1);
+
+        size_t content_pos = tag_lower.find("content=\"");
+        if (content_pos == std::string::npos) {
+            content_pos = tag_lower.find("content='");
+            if (content_pos == std::string::npos) return "";
+            content_pos += 9;
+            size_t end_pos = tag.find('\'', content_pos);
+            return (end_pos != std::string::npos) ? tag.substr(content_pos, end_pos - content_pos) : "";
+        }
+        content_pos += 9;
+        size_t end_pos = tag.find('"', content_pos);
+        return (end_pos != std::string::npos) ? tag.substr(content_pos, end_pos - content_pos) : "";
+    };
+
+    meta.description    = extract_meta_content(html, "name",     "description");
+    meta.author         = extract_meta_content(html, "name",     "author");
+    meta.keywords       = extract_meta_content(html, "name",     "keywords");
+    meta.og_title       = extract_meta_content(html, "property", "og:title");
+    meta.og_description = extract_meta_content(html, "property", "og:description");
+    meta.og_image       = extract_meta_content(html, "property", "og:image");
+    meta.publish_date   = extract_meta_content(html, "property", "article:published_time");
+
+    if (meta.publish_date.empty())
+        meta.publish_date = extract_meta_content(html, "name", "date");
+    if (meta.publish_date.empty())
+        meta.publish_date = extract_meta_content(html, "property", "article:modified_time");
+
+    // Canonical URL
+    std::string lower_html = html;
+    std::transform(lower_html.begin(), lower_html.end(), lower_html.begin(), ::tolower);
+    size_t canon_pos = lower_html.find("rel=\"canonical\"");
+    if (canon_pos != std::string::npos) {
+        size_t tag_start = lower_html.rfind('<', canon_pos);
+        size_t tag_end = lower_html.find('>', canon_pos);
+        if (tag_start != std::string::npos && tag_end != std::string::npos) {
+            std::string tag = html.substr(tag_start, tag_end - tag_start + 1);
+            size_t href_pos = tag.find("href=\"");
+            if (href_pos != std::string::npos) {
+                href_pos += 6;
+                size_t end_pos = tag.find('"', href_pos);
+                if (end_pos != std::string::npos)
+                    meta.canonical_url = tag.substr(href_pos, end_pos - href_pos);
+            }
+        }
+    }
+
+    return meta;
+}
+
+// ── extract_json_ld ───────────────────────────────────────────────────────────
+std::string WebScraper::extract_json_ld(const std::string& html) {
+    std::string result;
+    std::string lower = html;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    std::string open_tag = "<script type=\"application/ld+json\"";
+    std::string close_tag = "</script>";
+    size_t pos = 0;
+
+    while (pos < lower.size()) {
+        size_t start = lower.find(open_tag, pos);
+        if (start == std::string::npos) break;
+
+        size_t gt = html.find('>', start);
+        if (gt == std::string::npos) break;
+        size_t content_start = gt + 1;
+
+        size_t end = lower.find(close_tag, content_start);
+        if (end == std::string::npos) break;
+
+        std::string json_content = html.substr(content_start, end - content_start);
+        // Trim whitespace
+        size_t first = json_content.find_first_not_of(" \t\r\n");
+        size_t last = json_content.find_last_not_of(" \t\r\n");
+        if (first != std::string::npos && last != std::string::npos) {
+            json_content = json_content.substr(first, last - first + 1);
+            if (!result.empty()) result += "\n---\n";
+            result += json_content;
+        }
+
+        pos = end + close_tag.size();
+    }
+
+    return result;
+}
+
 // ── remove_section ────────────────────────────────────────────────────────────
-// Removes <tag ... attr="val" ...>...</tag> blocks (handles nesting via simple
-// bracket counting — good enough for boilerplate removal).
 std::string WebScraper::remove_section(const std::string& html,
                                         const std::string& tag,
                                         const std::string& attr,
@@ -90,14 +273,12 @@ std::string WebScraper::remove_section(const std::string& html,
     out.reserve(html.size());
     size_t pos = 0;
 
-    // Pattern: <tag ...attr="val"...
     std::string open_pat = "<" + tag;
 
     while (pos < html.size()) {
         size_t found = html.find(open_pat, pos);
         if (found == std::string::npos) { out.append(html, pos, html.size()-pos); break; }
 
-        // Check if this open tag contains the attribute
         size_t tag_end = html.find('>', found);
         if (tag_end == std::string::npos) { out.append(html, pos, html.size()-pos); break; }
 
@@ -109,7 +290,6 @@ std::string WebScraper::remove_section(const std::string& html,
             continue;
         }
 
-        // Skip everything until matching close tag (simple depth counter)
         out.append(html, pos, found - pos);
         int depth  = 1;
         size_t cur = tag_end + 1;
@@ -139,19 +319,13 @@ std::string WebScraper::extract_text(const std::string& html,
     std::string h = html;
 
     if (strip_boilerplate) {
-        // ── Safe iterative tag-pair stripper ──────────────────────────────────
-        // NOTE: GCC std::regex with [\s\S]*? causes exponential backtracking
-        // and stack overflow (SIGSEGV) on large HTML pages. We use linear
-        // string search instead.
         auto remove_tag_blocks = [](std::string& s, const std::string& tag) {
             std::string open  = "<" + tag;
             std::string close = "</" + tag + ">";
             size_t pos = 0;
             while (pos < s.size()) {
-                // Find next occurrence of opening tag
                 size_t found = s.find(open, pos);
                 if (found == std::string::npos) break;
-                // Verify next char after tag name is '>' or space (not e.g. <header matching <head>)
                 if (found + open.size() < s.size()) {
                     char next = s[found + open.size()];
                     if (next != '>' && next != ' ' && next != '\t' && next != '\n' && next != '\r') {
@@ -165,10 +339,9 @@ std::string WebScraper::extract_text(const std::string& html,
             }
         };
 
-        for (const std::string& tag : {"script","style","noscript","head","iframe","svg"})
+        for (const auto& tag : std::vector<std::string>{"script","style","noscript","head","iframe","svg"})
             remove_tag_blocks(h, tag);
 
-        // ── Extract main content via simple find (no regex) ───────────────────
         auto extract_between = [](const std::string& src,
                                   const std::string& open_tag,
                                   const std::string& close_tag) -> std::string {
@@ -184,13 +357,29 @@ std::string WebScraper::extract_text(const std::string& html,
             return src.substr(content_start, end - content_start);
         };
 
+        // Try multiple content selectors for better extraction
         std::string extracted;
         extracted = extract_between(h, "<main",    "</main>");
         if (extracted.empty()) extracted = extract_between(h, "<article", "</article>");
+        // Common content div IDs
+        if (extracted.empty()) {
+            std::string h_low = h;
+            std::transform(h_low.begin(), h_low.end(), h_low.begin(), ::tolower);
+            // Wikipedia content
+            if (h_low.find("id=\"mw-content-text\"") != std::string::npos)
+                extracted = extract_between(h, "id=\"mw-content-text\"", "</div>");
+            // Generic content divs
+            if (extracted.empty() && h_low.find("id=\"content\"") != std::string::npos)
+                extracted = extract_between(h, "id=\"content\"", "</div>");
+            if (extracted.empty() && h_low.find("class=\"post-content\"") != std::string::npos)
+                extracted = extract_between(h, "class=\"post-content\"", "</div>");
+            if (extracted.empty() && h_low.find("class=\"entry-content\"") != std::string::npos)
+                extracted = extract_between(h, "class=\"entry-content\"", "</div>");
+        }
         if (extracted.empty()) extracted = extract_between(h, "<body",    "</body>");
         if (!extracted.empty()) h = extracted;
 
-        for (const std::string& tag : {"nav","footer","header","aside"})
+        for (const auto& tag : std::vector<std::string>{"nav","footer","header","aside","sidebar"})
             remove_tag_blocks(h, tag);
     }
 
@@ -202,7 +391,8 @@ std::string WebScraper::extract_text(const std::string& html,
     static const Entity entities[] = {
         {"&amp;","&"},{"&lt;","<"},{"&gt;",">"},{"&quot;","\""},
         {"&apos;","'"},{"&nbsp;"," "},{"&#39;","'"},{"&mdash;","—"},
-        {"&ndash;","–"},{"&hellip;","…"},
+        {"&ndash;","–"},{"&hellip;","…"},{"&#x27;","'"},{"&#34;","\""},
+        {"&laquo;","«"},{"&raquo;","»"},{"&bull;","•"},{"&copy;","©"},
     };
     for (const auto& e : entities) {
         size_t p = 0;
@@ -217,16 +407,21 @@ std::string WebScraper::extract_text(const std::string& html,
 
 // ── extract_title ─────────────────────────────────────────────────────────────
 std::string WebScraper::extract_title(const std::string& html) {
-    std::regex re(R"(<title[^>]*>(.*?)</title>)",
-                  std::regex::icase | std::regex::ECMAScript);
-    std::smatch m;
-    if (std::regex_search(html, m, re)) {
-        std::string title = m[1].str();
-        // Strip tags inside title (rare but possible)
-        title = strip_tags(title);
-        return collapse_whitespace(title);
-    }
-    return "(no title)";
+    // Safe linear search instead of regex for title
+    std::string lower = html;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    size_t start = lower.find("<title");
+    if (start == std::string::npos) return "(no title)";
+    size_t gt = lower.find('>', start);
+    if (gt == std::string::npos) return "(no title)";
+    size_t content_start = gt + 1;
+    size_t end = lower.find("</title>", content_start);
+    if (end == std::string::npos) return "(no title)";
+
+    std::string title = html.substr(content_start, end - content_start);
+    title = strip_tags(title);
+    return collapse_whitespace(title);
 }
 
 // ── extract_links ─────────────────────────────────────────────────────────────
@@ -246,12 +441,10 @@ std::vector<std::string> WebScraper::extract_links(const std::string& html,
 
 // ── strip_tags ────────────────────────────────────────────────────────────────
 std::string WebScraper::strip_tags(const std::string& html) {
-    // Replace block-level tags with newlines for readability
     std::string h = html;
     std::regex block(R"(</?(?:p|div|h[1-6]|li|tr|br|hr|blockquote|pre)[^>]*>)",
                      std::regex::icase);
     h = std::regex_replace(h, block, "\n");
-    // Remove all remaining tags
     std::regex any_tag("<[^>]+>");
     return std::regex_replace(h, any_tag, "");
 }
@@ -274,7 +467,6 @@ std::string WebScraper::collapse_whitespace(const std::string& text) {
         }
     }
 
-    // Trim leading/trailing
     size_t start = out.find_first_not_of(" \n");
     size_t end   = out.find_last_not_of(" \n");
     if (start == std::string::npos) return "";

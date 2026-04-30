@@ -29,6 +29,9 @@ public:
     // Process a single query (used by run() and for testing)
     void process(const std::string& query);
 
+    // Process a URL: scrape it, extract topic, search for related content
+    void process_url(const std::string& url);
+
     void print_banner();
     void print_help();
 

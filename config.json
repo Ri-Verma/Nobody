@@ -1,24 +1,54 @@
 {
-  "_comment": "Nobody configuration. All values here can be overridden by environment variables.",
+  "_comment": "Nobody v2.0 configuration. All values can be overridden by environment variables.",
   "ollama_model": "llama3.1:latest",
   "google_api_key": "",
   "google_cx": "",
   "search": {
-    "max_results": 8,
+    "max_results": 15,
     "use_duckduckgo": true,
     "use_google": false,
-    "language": "en"
+    "use_brave": false,
+    "use_bing": false,
+    "use_wayback": true,
+    "brave_api_key": "",
+    "bing_api_key": "",
+    "language": "en",
+    "enable_dorking": true,
+    "dork_queries_per_search": 7,
+    "negative_domains": [
+      "pinterest.com",
+      "quora.com",
+      "ask.com",
+      "answers.yahoo.com",
+      "slideshare.net",
+      "scribd.com",
+      "linkedin.com",
+      "twitter.com",
+      "facebook.com",
+      "instagram.com",
+      "youtube.com",
+      "reddit.com",
+      "github.com",
+      "gitlab.com",
+      "bitbucket.org"
+    ]
   },
   "scraper": {
-    "pages_to_scrape": 3,
-    "max_text_length": 6000,
+    "pages_to_scrape": 10,
+    "max_text_length": 12000,
     "timeout_seconds": 20,
-    "strip_boilerplate": true
+    "strip_boilerplate": true,
+    "max_concurrent": 6,
+    "use_wayback_fallback": true,
+    "extract_meta": true,
+    "extract_structured_data": true
   },
   "ai": {
     "model": "llama3.1:latest",
-    "max_tokens": 1500,
-    "temperature": 0.3
+    "max_tokens": 2500,
+    "temperature": 0.2,
+    "max_context_chars": 24000,
+    "synthesis_mode": "standard"
   },
   "ui": {
     "color": true,
